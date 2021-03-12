@@ -1,0 +1,187 @@
+---
+
+ - name: NCELL QA AUTOMATED INSTALLATION SCRIPT - ANSIBLE
+   hosts: localhost
+   connection: local
+   become : yes
+   gather_facts: no
+
+
+
+   vars:
+      _allowed_nodes:
+        - dnd
+        - dnd_rest_api
+        - product_catalogue
+        - rule_engine_backend
+        - rule_engine_rest_api
+        - scm_crons
+        - scm_mail
+        - scm_rest_api
+        - scm_subscription
+ 
+
+
+   vars_prompt:
+    
+    - name: target_host
+      prompt: QA server Detail (Specify the IPs with "/" seperated) -
+      private: no
+  
+    - name: result
+      prompt: Which /opt Nodes  You want to sync (Specify the Nodes "/" seperated)  -[{{ _allowed_nodes | join('/') }}]??
+      private: no
+
+
+ 
+
+  
+   pre_tasks:
+  
+      - name: Make sure version is ok
+        fail:
+          msg: >-
+            Input IP is not formatted correctly. Please make sure
+            it is of the form of x.y.z.w
+        when: not target_host is regex('((25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)(,\n|,?$))')
+        run_once: true
+ 
+
+
+   tasks:
+
+
+    - set_fact:
+        user: "{{ lookup('env', 'USER') }}"
+        
+    - set_fact:
+        opt_nodes: "{{ result }}"
+
+    - set_fact:
+        nodes: "{{ opt_nodes.split('/') }}"
+
+
+    - set_fact:
+        target: "{{ target_host }}"
+
+    - set_fact:
+        servers: "{{ target.split('/') }}"              
+
+    - name: execute subtask 1
+      include_tasks: subtask_1.yml
+      loop: "{{ nodes }}"
+      loop_control:
+        loop_var: node
+
+
+    - name: move the previous taring list
+      shell: mv /home/ansible/qa_automated/files/opt_nodes  /home/ansible/qa_automated/files/opt_nodes-ansible-backup-`date +%Y-%m-%d-%H%M%S`
+      ignore_errors: yes
+
+    - name: write the list 
+      shell: echo "/opt/{{ item }}/system" >> /home/ansible/qa_automated/files/opt_nodes
+      ignore_errors: yes
+      loop: "{{nodes}}"
+      become: yes
+      become_user: ansible
+
+    - name: tar the nodes
+      shell: tar -zcf /tmp/opt_automated_tar.tgz $(cat /home/ansible/qa_automated/files/opt_nodes)
+      ignore_errors: yes
+      become: yes
+
+
+    - name: insert into Inventory 1
+      shell: "{{ item }}"
+      with_items:
+          - rm -rf inventory
+          - echo "[qa_server]" >> inventory
+      ignore_errors: yes
+
+
+    - name: insert into Inventory 2
+      shell: echo "{{ item }}" >> inventory
+      ignore_errors: yes
+      loop: "{{servers}}"
+
+    - meta: refresh_inventory
+
+
+ - name: PEER SERVERS EXECUTION
+   hosts: qa_server
+   remote_user: ansible
+   become: yes 
+   vars:
+    - opt_node: "{{ hostvars['localhost']['opt_nodes'] }}"
+    - user:  "{{ hostvars['localhost']['user'] }}"
+
+
+   tasks:
+
+      - set_fact:
+          nodes: "{{ opt_node.split('/') }}"
+
+
+      - copy:
+          src: /tmp/opt_automated_tar.tgz 
+          dest: /tmp 
+
+      - name: Warning !!
+        shell: wall "Dear Users !! {{item}} is being upgraded.. Sorry for the service interuption"
+        ignore_errors: yes
+        loop: "{{nodes}}"
+          
+          
+      - name: Given Node is being backup
+        shell: mv /opt/{{ item }}/system  /opt/{{ item }}/system-ansible-backup-`date +%Y-%m-%d-%H%M%S`
+        ignore_errors: yes
+        loop: "{{nodes}}"
+
+
+      - name: Origin File is being untar'ed
+        shell: tar -zxf /tmp/opt_automated_tar.tgz -C / 
+
+
+      - name: add the iplist
+        set_fact: foo="{{ ansible_default_ipv4.address }}"
+        
+      - set_fact:
+            splited: "{{ foo.split('.') }}"
+                
+      - name: Host IPs are being added
+        shell: sed "-iansible-backup-`date +%F`" "s/10,0,0,47/{{ splited | join(',') }}/g" /opt/{{ item }}/system/releases/latest/sys.config
+        ignore_errors: yes
+        loop: "{{nodes}}"
+
+
+
+      - name: Host IPs are being added
+        shell: sed "-iansible-backup-`date +%F`" "s/10.0.0.47/{{ ansible_default_ipv4.address }}/g" /opt/{{ item }}/system/releases/latest/sys.config
+        ignore_errors: yes
+        loop: "{{nodes}}"
+
+      - name: HostNames are being added
+        shell: sed  -i "s/ncell_qa06/{{ansible_hostname}}/g" /opt/{{ item }}/system/releases/latest/sys.config
+        ignore_errors: yes
+        loop: "{{nodes}}"
+
+      - name: Node is restarted
+        shell: systemctl restart {{item}}
+        ignore_errors: yes
+        loop: "{{nodes}}"
+                
+      - name: Congratulations !!!
+        shell: wall "{{item}} deployed successfully"
+        ignore_errors: yes
+        loop: "{{nodes}}"
+                
+      - name: Log Write
+        shell: echo "{{user}} | " `date +%Y-%m-%d-%H%M%S` " | {{item}}" >> /var/log/qa_automated/opt_automated.log
+        ignore_errors: yes
+        loop: "{{nodes}}"
+                
+      - name: Space Write
+        shell: echo "---------" >> /var/log/qa_automated/opt_automated.log
+        ignore_errors: yes
+
+

@@ -1,0 +1,198 @@
+---
+
+ - name: NCELL QA AUTOMATED INSTALLATION SCRIPT - ANSIBLE
+   hosts: localhost
+   connection: local
+   become : yes
+   gather_facts: no
+
+
+
+   vars:
+      _allowed_nodes:
+        - scm_customer_care
+        - dnd_admin
+        - scm_admin
+        - cam_admin
+
+   vars_prompt:
+    
+    - name: target_host
+      prompt: QA server Detail (Specify the IPs with "|" seperated) -
+      private: no
+  
+    - name: result
+      prompt: Which YAWS Nodes  You want to sync (Specify the Nodes "|" seperated)  -[{{ _allowed_nodes | join('|') }}]??
+      private: no
+
+    - name: configs
+      prompt: Which config files you want to sync "|" seperated)  -??
+      private: no
+ 
+
+  
+   pre_tasks:
+  
+      - name: Make sure version is ok
+        fail:
+          msg: >-
+            Input IP is not formatted correctly. Please make sure
+            it is of the form of x.y.z.w
+        when: not target_host is regex('((25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)(,\n|,?$))')
+        run_once: true
+ 
+
+
+   tasks:
+
+
+    - set_fact:
+        user: "{{ lookup('env', 'USER') }}"
+        
+    - set_fact:
+        www_admin_list: "{{ result }}"
+
+    - set_fact:
+        nodes: "{{ www_admin_list.split('|') }}"
+
+
+    - set_fact:
+        target: "{{ target_host }}"
+
+    - set_fact:
+        configs: "{{ configs }}"
+
+    - set_fact:
+        locations: "{{ configs.split('|') }}" 
+
+    - set_fact:
+        servers: "{{ target.split('|') }}"              
+
+    - name: execute subtask admin
+      include_tasks: subtask_1_admin.yml
+      loop: "{{ nodes }}"
+      loop_control:
+        loop_var: node
+
+    - name: execute subtask admin
+      include_tasks: subtask_2_admin.yml
+      loop: "{{ locations }}"
+      loop_control:
+        loop_var: location
+
+
+
+    - name: move the previous taring list
+      shell: mv /home/ansible/qa_automated/files/www_admin_list  /home/ansible/qa_automated/files/www_admin_list-ansible-backup-`date +%Y-%m-%d-%H%M%S`
+      ignore_errors: yes
+
+    - name: write the list 
+      shell: echo "/opt/{{ item }}/system" >> /home/ansible/qa_automated/files/www_admin_list
+      ignore_errors: yes
+      loop: "{{nodes}}"
+      become: yes
+      become_user: ansible
+
+    - name: tar the nodes
+      shell: tar -zcf /tmp/admin_automated.tgz $(cat /home/ansible/qa_automated/files/www_admin_list)
+      ignore_errors: yes
+      become: yes
+
+
+    - name: insert into Inventory 1
+      shell: "{{ item }}"
+      with_items:
+          - rm -rf inventory
+          - echo "[qa_server]" >> inventory
+      ignore_errors: yes
+
+
+    - name: insert into Inventory 2
+      shell: echo "{{ item }}" >> inventory
+      ignore_errors: yes
+      loop: "{{servers}}"
+
+    - meta: refresh_inventory
+
+
+ - name: PEER SERVERS EXECUTION
+   hosts: qa_server
+   remote_user: ansible
+   become: yes 
+   vars:
+    - opt_node: "{{ hostvars['localhost']['www_admin_list'] }}"
+    - user:  "{{ hostvars['localhost']['user'] }}"
+    - configs: "{{ hostvars['localhost']['configs'] }}"
+
+
+   tasks:
+
+      - set_fact:
+          nodes: "{{ opt_node.split('|') }}"
+
+      - set_fact:
+          location: "{{ configs.split('|') }}"
+
+      - copy:
+          src: /tmp/admin_automated.tgz 
+          dest: /tmp 
+
+      - name: Warning !!
+        shell: wall "Dear Users !! {{item}} is being upgraded.. Sorry for the service interuption"
+        ignore_errors: yes
+        loop: "{{nodes}}"
+          
+          
+      - name: Given Node is being backup
+        shell: mv /usr/local/var/yaws/www/{{ nodes }}  /usr/local/var/yaws/www/{{ nodes }}-ansible-backup-`date +%Y-%m-%d-%H%M%S`
+        ignore_errors: yes
+        loop: "{{nodes}}"
+
+
+      - name: Origin File is being untar'ed
+        shell: tar -zxf /tmp/admin_automated.tgz -C / 
+
+
+      - name: add the iplist
+        set_fact: foo="{{ ansible_default_ipv4.address }}"
+        
+      - set_fact:
+            splited: "{{ foo.split('.') }}"
+                
+      - name: Host IPs are being added
+        shell: sed "-iansible-backup-`date +%F`" "s/10,0,0,47/{{ splited | join(',') }}/g" {{ item }}
+        ignore_errors: yes
+        loop: "{{location}}"
+
+
+
+      - name: Host IPs are being added
+        shell: sed "-iansible-backup-`date +%F`" "s/10.0.0.47/{{ ansible_default_ipv4.address }}/g" {{ item }}
+        ignore_errors: yes
+        loop: "{{location}}"
+
+      - name: HostNames are being added
+        shell: sed  -i "s/ncell_qa06/{{ansible_hostname}}/g" {{ item }}
+        ignore_errors: yes
+        loop: "{{location}}"
+
+      - name: Node is restarted
+        shell: /etc/init.d/yaws restart
+        ignore_errors: yes
+
+                
+      - name: Congratulations !!!
+        shell: wall "{{item}} deployed successfully"
+        ignore_errors: yes
+        loop: "{{nodes}}"
+                
+      - name: Log Write
+        shell: echo "{{user}} | " `date +%Y-%m-%d-%H%M%S` " | {{item}}" >> /var/log/qa_automated/admin_automated.log
+        ignore_errors: yes
+        loop: "{{nodes}}"
+                
+      - name: Space Write
+        shell: echo "---------" >> /var/log/qa_automated/admin_automated.log
+        ignore_errors: yes
+
+

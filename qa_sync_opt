@@ -1,0 +1,4 @@
+#!/bin/bash
+whoami
+#sudo su -c "ansible-playbook /home/ansible/qa_automated/opt_automated.yml -vv" -s /bin/sh ansible
+

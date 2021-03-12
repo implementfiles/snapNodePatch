@@ -1,0 +1,64 @@
+---
+
+ - name: Tar the Nodes in {{ansible_hostname}} server
+   hosts: 127.0.0.1
+   connection: local
+   become : yes
+   tasks:
+ 
+
+      - name: Config Changes otpuser
+        shell: "{{ item }}"
+        with_items:
+          - rm -rf /tmp/ansible_automated_tar.tgz
+          - tar -zcf /tmp/ansible_automated_tar.tgz $(cat uniq opt_nodes www_admin_list uniq_nodes)
+        ignore_errors: yes
+
+ - name: qa_automated
+   hosts: qa_server
+   remote_user: ansible
+   become: yes
+   tasks:
+
+
+     - copy:
+         src: /tmp/ansible_automated_tar.tgz 
+         dest: /tmp 
+
+     - name: system backup
+       shell: mv {{ item }} {{ item }}-ansible-backup-`date +%Y-%m-%d-%H%M%S`
+       with_lines: cat opt_nodes www_admin_list uniq_nodes 
+       ignore_errors: yes
+
+     - name: untar the file
+       shell: tar -zxf /tmp/ansible_automated_tar.tgz -C / 
+
+     - name: IP Change
+       shell: sed "-iansible-backup-`date +%F`" "s/10.0.0.47/{{ ansible_default_ipv4.address }}/g" {{ item }}/releases/latest/sys.config
+       with_lines: cat opt_nodes 
+       ignore_errors: yes
+
+     - name: Hostname Changes
+       shell: sed  -i "s/ncell_qa06/{{ansible_hostname}}/g" {{ item }}/releases/latest/sys.config
+       with_lines: cat opt_nodes
+       ignore_errors: yes
+
+     - name: IP Change
+       shell: sed "-iansible-backup-`date +%F`" "s/10.0.0.47/{{ ansible_default_ipv4.address }}/g" {{ item }}
+       with_lines: cat  uniq
+       ignore_errors: yes
+
+     - name: Hostname Changes
+       shell: sed  -i "s/ncell_qa06/{{ansible_hostname}}/g" {{ item }}
+       with_lines: cat  uniq
+       ignore_errors: yes
+
+
+     - name: systemctl restart
+       shell: systemctl restart {{item}}
+       with_lines: (cat opt_nodes | cut -d/ -f3)
+       ignore_errors: yes
+
+     - name: yaws restart
+       shell: /etc/init.d/yaws restart
+       ignore_errors: yes

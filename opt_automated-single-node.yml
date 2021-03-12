@@ -1,0 +1,91 @@
+---
+
+ - name: NCELL QA AUTOMATED INSTALLATION SCRIPT - ANSIBLE
+   hosts: localhost
+   connection: local
+   become : yes
+   gather_facts: no
+   vars_prompt:
+   - name: target_host
+     prompt: Which QA server You want to install the patch with (Specify the IPs) ??
+     private: no
+
+   tasks:
+    - add_host:
+        name: "{{ target_host }}"
+        groups: dynamically_created_hosts
+                 
+    - pause:
+        prompt: "What is the Node name ? (Please Note this script runs only for /opt nodes) "
+        echo: yes
+      register: result
+        
+    - set_fact:
+        nodes: "{{ result.user_input }}"
+
+    - set_fact:
+        user: "{{ lookup('env', 'USER') }}"     
+
+    - name: Warning !!
+      shell: wall "Dear Users !! {{nodes}} is being upgraded.. Sorry for the service interuption"
+      ignore_errors: yes
+
+
+    - name: find some files at a location, recursively
+      find:
+        paths: "/opt/{{ nodes }}/system"
+        recurse: true
+      register: found_files
+
+    - name: end play when no files are found
+      meta: end_play
+      when: found_files.matched == 0
+
+
+    - name: tar from local server
+      shell: "{{ item }}"
+      with_items:
+          - rm -rf /tmp/opt_automated_tar.tgz
+          - tar -zcf /tmp/opt_automated_tar.tgz /opt/{{ nodes }}/system
+      ignore_errors: yes
+
+ - name: qa_automated
+   hosts: dynamically_created_hosts
+   remote_user: ansible
+   become: yes 
+   vars:
+    - nodes: "{{ hostvars['localhost']['nodes'] }}"
+    - user:  "{{ hostvars['localhost']['user'] }}"
+
+   tasks:
+      - copy:
+          src: /tmp/opt_automated_tar.tgz 
+          dest: /tmp 
+
+      - name: Given Node is being backup
+        shell: mv /opt/{{ nodes }}/system  /opt/{{ nodes }}/system-ansible-backup-`date +%Y-%m-%d-%H%M%S`
+        ignore_errors: yes
+
+      - name: Origin File is being untar'ed
+        shell: tar -zxf /tmp/opt_automated_tar.tgz -C / 
+
+      - name: Host IPs are being added
+        shell: sed "-iansible-backup-`date +%F`" "s/10.0.0.47/{{ ansible_default_ipv4.address }}/g" /opt/{{ nodes }}/system/releases/latest/sys.config
+        ignore_errors: yes
+
+      - name: HostNames are being added
+        shell: sed  -i "s/ncell_qa06/{{ansible_hostname}}/g" /opt/{{ nodes }}/system/releases/latest/sys.config
+        ignore_errors: yes
+
+
+      - name: Node is restarted
+        shell: systemctl restart {{nodes}}
+        ignore_errors: yes
+                
+      - name: Congratulations !!!
+        shell: wall "{{nodes}} deployed successfully"
+        ignore_errors: yes
+
+      - name: Log Write
+        shell: echo "{{user}} | " `date +%Y-%m-%d-%H%M%S` " | {{nodes}}" >> /var/log/qa_automated/opt_automated.log
+        ignore_errors: yes

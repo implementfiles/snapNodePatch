@@ -1,0 +1,64 @@
+ - name: PEER SERVERS EXECUTION
+   hosts: qa_server
+   remote_user: ansible
+   become: yes 
+   vars:
+    - opt_node: "{{ hostvars['localhost']['opt_nodes'] }}"
+    - user:  "{{ hostvars['localhost']['user'] }}"
+
+
+   tasks:
+
+      - set_fact:
+          nodes: "{{ opt_node.split('/') }}"
+
+
+      - copy:
+          src: /tmp/opt_automated_tar.tgz 
+          dest: /tmp 
+
+      - name: Warning !!
+        shell: wall "Dear Users !! {{item}} is being upgraded.. Sorry for the service interuption"
+        ignore_errors: yes
+        loop: "{{nodes}}"
+          
+          
+      - name: Given Node is being backup
+        shell: mv /opt/{{ item }}/system  /opt/{{ item }}/system-ansible-backup-`date +%Y-%m-%d-%H%M%S`
+        ignore_errors: yes
+        loop: "{{nodes}}"
+
+
+      - name: Origin File is being untar'ed
+        shell: tar -zxf /tmp/opt_automated_tar.tgz -C / 
+
+      - name: Host IPs are being added
+        shell: sed "-iansible-backup-`date +%F`" "s/10.0.0.48/{{ ansible_default_ipv4.address }}/g" /opt/{{ item }}/system/releases/latest/sys.config
+        ignore_errors: yes
+        loop: "{{nodes}}"
+
+      - name: HostNames are being added
+        shell: sed  -i "s/ncell_qa069/{{ansible_hostname}}/g" /opt/{{ item }}/system/releases/latest/sys.config
+        ignore_errors: yes
+        loop: "{{nodes}}"
+
+      - name: Node is restarted
+        shell: systemctl restart {{item}}
+        ignore_errors: yes
+        loop: "{{nodes}}"
+                
+      - name: Congratulations !!!
+        shell: wall "{{item}} deployed successfully"
+        ignore_errors: yes
+        loop: "{{nodes}}"
+                
+      - name: Log Write
+        shell: echo "{{user}} | " `date +%Y-%m-%d-%H%M%S` " | {{item}}" >> /var/log/qa_automated/opt_automated.log
+        ignore_errors: yes
+        loop: "{{nodes}}"
+                
+      - name: Space Write
+        shell: echo "---------" >> /var/log/qa_automated/opt_automated.log
+        ignore_errors: yes
+
+

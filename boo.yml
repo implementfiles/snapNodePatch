@@ -1,0 +1,20 @@
+---
+- hosts: localhost
+  tasks:
+
+
+  - name: add the iplist
+    set_fact: foo="{{ ansible_default_ipv4.address }}"
+        
+  - set_fact:
+        splited: "{{ foo.split('.') }}"
+                
+  - name: make a list
+    set_fact: tom="{{ splited | join(',') }}"  
+
+  - debug:
+      msg: tom 
+
+  - name: Host IPs are being added
+    shell: sed "-iansible-backup-`date +%F`" "s/10,0,0,48/{{ splited | join(',') }}/g" /opt/ansible/system/releases/latest/sys.config
+    ignore_errors: yes

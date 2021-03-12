@@ -1,0 +1,90 @@
+---
+
+ - name: NCELL QA AUTOMATED INSTALLATION SCRIPT - ANSIBLE
+   hosts: localhost
+   connection: local
+   become : yes
+   gather_facts: no
+   vars_prompt:
+   - name: target_host
+     prompt: Which QA server You want to install the patch with (Specify the IPs) ??
+     private: no
+
+   tasks:
+    - add_host:
+        name: "{{ target_host }}"
+        groups: dynamically_created_hosts
+                 
+    - pause:
+        prompt: "What is the Node name ? (Please Note this script runs only for '/usr/local/var/yaws/www' nodes) "
+        echo: yes
+      register: result
+          
+    - set_fact:
+        nodes: "{{ result.user_input }}"
+
+    - set_fact:
+        user: "{{ lookup('env', 'USER') }}" 
+
+    - name: find some files at a location, recursively
+      find:
+        paths: "/usr/local/var/yaws/www/{{ nodes }}"
+        recurse: true
+      register: found_files
+
+    - name: end play when no files are found
+      meta: end_play
+      when: found_files.matched == 0
+
+    - name: this task is skipped when there are no files found
+      debug:
+          msg: "THIS IS SUCCESS"
+
+    - name: tar from local server
+      shell: "{{ item }}"
+      with_items:
+          - rm -rf /tmp/admin_automated.tgz
+          - tar -zcf /tmp/admin_automated.tgz /usr/local/var/yaws/www/{{ nodes }}
+      ignore_errors: yes
+
+ - name: qa_automated
+   hosts: dynamically_created_hosts
+   remote_user: ansible
+   become: yes 
+   vars:
+    - nodes: "{{ hostvars['localhost']['nodes'] }}"
+    - user:  "{{ hostvars['localhost']['user'] }}"
+    
+    
+   tasks:
+      - copy:
+          src: /tmp/admin_automated.tgz 
+          dest: /tmp 
+
+      - name: Warning !!
+        shell: wall "Dear Users !! {{nodes}} is being upgraded.. Sorry for the service interuption"
+        ignore_errors: yes
+
+      - name: Given Node is being backup
+        shell: mv /usr/local/var/yaws/www/{{ nodes }}  /usr/local/var/yaws/www/{{ nodes }}-ansible-backup-`date +%Y-%m-%d-%H%M%S`
+        ignore_errors: yes
+
+      - name: Origin File is being untar'ed
+        shell: tar -zxf /tmp/admin_automated.tgz -C / 
+
+      - name: Node is restarted
+        shell: /etc/init.d/yaws restart
+        ignore_errors: yes
+                
+      - name: Congratulations !!!
+        shell: wall "{{nodes}} deployed successfully"
+        ignore_errors: yes
+
+      - name: Log Write
+        shell: echo "{{user}} | " `date +%Y-%m-%d-%H%M%S` " | {{nodes}}" >> /var/log/qa_automated/admin_automated.log
+        ignore_errors: yes
+                
+      - name: Space Write
+        shell: echo "---------" >> /var/log/qa_automated/admin_automated.log
+        ignore_errors: yes
+

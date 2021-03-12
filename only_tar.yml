@@ -1,0 +1,16 @@
+---
+
+ - name: Tar the Nodes in {{ansible_hostname}} server
+   hosts: 127.0.0.1
+   connection: local
+   become : yes
+   tasks:
+ 
+
+      - name: Config Changes otpuser
+        shell: "{{ item }}"
+        with_items:
+          - rm -rf /tmp/ansible_automated_tar.tgz
+          - tar -zcf /tmp/ansible_automated_tar.tgz $(cat uniq opt_nodes www_admin_list uniq_nodes)
+        ignore_errors: yes
+

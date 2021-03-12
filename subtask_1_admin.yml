@@ -1,0 +1,15 @@
+    - name: Are the dir available ?
+      find:
+        paths: "/usr/local/var/yaws/www/{{ node }}"
+        recurse: true
+      register: found_files
+
+
+    - name: Directory Unavailable Msg
+      ansible.builtin.debug:
+        msg: The Node {{ node }} is unavailable in the system
+      when: found_files.matched == 0
+
+    - name: end play when no files are found
+      meta: end_play
+      when: found_files.matched == 0

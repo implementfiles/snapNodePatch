@@ -1,0 +1,9 @@
+    - name: Are the dir available ?
+      find:
+        paths: "/opt/{{ node }}/system"
+        recurse: true
+      register: found_files
+
+    - name: end play when no files are found
+      meta: end_play
+      when: found_files.matched == 0
